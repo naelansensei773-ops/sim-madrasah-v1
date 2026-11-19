@@ -5,32 +5,40 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Save, Plus, Trash2 } from "lucide-react";
 
+// Tipe data untuk memastikan TypeScript tidak bingung
+type RincianGaji = {
+  nama: string;
+  nominal: number;
+};
+
 function FormProsesGajiContent() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
+  
   const guruId = params.id as string;
   const bulan = searchParams.get("bulan") || "";
   const tahun = searchParams.get("tahun") || "";
   const namaBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
   const [namaGuru, setNamaGuru] = useState("");
-  const [pendapatan, setPendapatan] = useState<{nama: string, nominal: number}[]>([]);
-  const [potongan, setPotongan] = useState<{nama: string, nominal: number}[]>([]);
+  const [pendapatan, setPendapatan] = useState<RincianGaji[]>([]);
+  const [potongan, setPotongan] = useState<RincianGaji[]>([]);
   const [loading, setLoading] = useState(true);
   const [sedangSimpan, setSedangSimpan] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
+      // 1. Ambil nama guru
       const { data: guru } = await supabase.schema("master").from("guru").select("nama_lengkap").eq("id", guruId).single();
       if (guru) setNamaGuru(guru.nama_lengkap);
 
-      // Ambil setting gaji default
+      // 2. Ambil setting gaji default
       const { data: set } = await supabase.schema("keuangan").from("setting_gaji").select("*").eq("guru_id", guruId).single();
       
       if (set) {
         // Masukkan default pendapatan
-        const defaultPendapatan = [];
+        const defaultPendapatan: RincianGaji[] = [];
         if (set.gaji_pokok > 0) defaultPendapatan.push({ nama: "Gaji Pokok", nominal: set.gaji_pokok });
         if (set.tunj_fungsional > 0) defaultPendapatan.push({ nama: "Tunj. Fungsional", nominal: set.tunj_fungsional });
         if (set.tunj_keluarga > 0) defaultPendapatan.push({ nama: "Tunj. Keluarga", nominal: set.tunj_keluarga });
@@ -38,7 +46,7 @@ function FormProsesGajiContent() {
         setPendapatan(defaultPendapatan);
 
         // Masukkan default potongan
-        const defaultPotongan = [];
+        const defaultPotongan: RincianGaji[] = [];
         if (set.pot_bpjs > 0) defaultPotongan.push({ nama: "BPJS Kesehatan", nominal: set.pot_bpjs });
         if (set.pot_koperasi > 0) defaultPotongan.push({ nama: "Koperasi", nominal: set.pot_koperasi });
         setPotongan(defaultPotongan);
@@ -48,25 +56,33 @@ function FormProsesGajiContent() {
     fetchData();
   }, [guruId]);
 
+  // ✅ PERBAIKAN 1: Gunakan functional update agar lebih aman
   const handleTambahBaris = (tipe: "pendapatan" | "potongan") => {
-    if (tipe === "pendapatan") setPendapatan([...pendapatan, { nama: "", nominal: 0 }]);
-    else setPotongan([...potongan, { nama: "", nominal: 0 }]);
+    if (tipe === "pendapatan") {
+      setPendapatan(prev => [...prev, { nama: "", nominal: 0 }]);
+    } else {
+      setPotongan(prev => [...prev, { nama: "", nominal: 0 }]);
+    }
   };
 
   const handleHapusBaris = (tipe: "pendapatan" | "potongan", index: number) => {
-    if (tipe === "pendapatan") setPendapatan(pendapatan.filter((_, i) => i !== index));
-    else setPotongan(potongan.filter((_, i) => i !== index));
+    if (tipe === "pendapatan") {
+      setPendapatan(prev => prev.filter((_, i) => i !== index));
+    } else {
+      setPotongan(prev => prev.filter((_, i) => i !== index));
+    }
   };
 
-  const handleUbahBaris = (tipe: "pendapatan" | "potongan", index: number, field: "nama" | "nominal", val: any) => {
+  // ✅ PERBAIKAN 2: Ganti tipe 'any' dengan 'string | number' dan gunakan .map() (Best Practice React)
+  const handleUbahBaris = (tipe: "pendapatan" | "potongan", index: number, field: keyof RincianGaji, val: string | number) => {
     if (tipe === "pendapatan") {
-      const newArr = [...pendapatan];
-      newArr[index][field] = val;
-      setPendapatan(newArr);
+      setPendapatan(prev => prev.map((item, i) => 
+        i === index ? { ...item, [field]: val } : item
+      ));
     } else {
-      const newArr = [...potongan];
-      newArr[index][field] = val;
-      setPotongan(newArr);
+      setPotongan(prev => prev.map((item, i) => 
+        i === index ? { ...item, [field]: val } : item
+      ));
     }
   };
 
@@ -88,11 +104,15 @@ function FormProsesGajiContent() {
     }]);
 
     setSedangSimpan(false);
-    if (error) alert(error.message);
-    else router.push("/keuangan/proses-gaji");
+    if (error) {
+      alert("Gagal menyimpan: " + error.message);
+    } else {
+      router.push("/keuangan/proses-gaji");
+    }
   }
 
   const formatRupiah = (angka: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(angka);
+  
   const totalPendapatan = pendapatan.reduce((sum, item) => sum + item.nominal, 0);
   const totalPotongan = potongan.reduce((sum, item) => sum + item.nominal, 0);
 
@@ -167,9 +187,10 @@ function FormProsesGajiContent() {
   );
 }
 
+// ✅ WAJIB: Pembungkus Suspense untuk useParams()
 export default function FormProsesGaji() {
   return (
-    <Suspense fallback={<div className="p-10 text-center">Memuat halaman...</div>}>
+    <Suspense fallback={<div className="p-10 text-center text-slate-500">Memuat halaman...</div>}>
       <FormProsesGajiContent />
     </Suspense>
   );
